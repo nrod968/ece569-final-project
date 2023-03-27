@@ -66,8 +66,8 @@ __global__ void canny_edge_0(float *imageIn, float *gradient, float *angle, int 
         float gx = -n[0] + n[2] - (2 * n[3]) + (2 * n[4]) - n[5] + n[7];
         float gy = -n[0] + n[5] - (2 * n[1]) + (2 * n[6]) - n[2] + n[7];
 
-        float grad = sqrt( pow(gx, 2) + pow(gy, 2) );
-        float theta = atan2( gy, gx );
+        float grad = sqrtf( pow(gx, 2) + pow(gy, 2) );
+        float theta = atan2f( gy, gx );
         theta = theta + (theta < 0) * PI;
 
         gradient[index] = grad;
@@ -121,139 +121,31 @@ __global__ void canny_edge_1(float *gradient, float *angle, float *edgemap, int 
     }
 }
 
+__global__ void apply_mask(float* inEdgemap, float* outMasked, int width, int height)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    if (idx >= width || idy >= height) return;
 
+    // Define the points of the triangle
+    float x1 = 0;
+    float y1 = height - 1;
 
-// __device__ void gaussian_kernel(float* kernel, int size, float sigma) {
-//     float sum = 0.0f;
-//     int offset = size / 2;
+    float x2 = width - 1;
+    float y2 = height - 1;
 
-//     for (int i = -offset; i <= offset; i++) {
-//         for (int j = -offset; j <= offset; j++) {
-//             float r = sqrtf(i * i + j * j);
-//             float val = expf(-r * r / (2.0f * sigma * sigma)) / (2.0f * M_PI * sigma * sigma);
-//             kernel[(i + offset) * size + j + offset] = val;
-//             sum += val;
-//         }
-//     }
+    float x3 = (float)width / 2;
+    float y3 = (float)height / 2;
 
-//     for (int i = 0; i < size * size; i++) {
-//         kernel[i] /= sum;
-//     }
-// }
+    // Compute the barycentric coordinates of the current pixel
+    float alpha = ((y2 - y3)*(idx - x3) + (x3 - x2)*(idy - y3)) / ((y2 - y3)*(x1 - x3) + (x3 - x2)*(y1 - y3));
+    float beta = ((y3 - y1)*(idx - x3) + (x1 - x3)*(idy - y3)) / ((y2 - y3)*(x1 - x3) + (x3 - x2)*(y1 - y3));
+    float gamma = 1.0 - alpha - beta;
 
-// __device__ void apply_kernel(float* output, const float* input, const float* kernel, int size, int width, int height) {
-//     int offset = size / 2;
-
-//     int tx = threadIdx.x;
-//     int ty = threadIdx.y;
-//     int bx = blockIdx.x * blockDim.x;
-//     int by = blockIdx.y * blockDim.y;
-//     int x = bx + tx;
-//     int y = by + ty;
-
-//     float sum = 0.0f;
-
-//     if (x < width && y < height) {
-//         for (int i = -offset; i <= offset; i++) {
-//             for (int j = -offset; j <= offset; j++) {
-//                 int idx = (y + i) * width + x + j;
-//                 if (idx >= 0 && idx < width * height) {
-//                     float val = input[idx];
-//                     float weight = kernel[(i + offset) * size + j + offset];
-//                     sum += val * weight;
-//                 }
-//             }
-//         }
-//         output[y * width + x] = sum;
-//     }
-// }
-
-// __device__ void sobel_filter(float* grad_x, float* grad_y, const float* input, int width, int height) {
-//     int tx = threadIdx.x;
-//     int ty = threadIdx.y;
-//     int bx = blockIdx.x * blockDim.x;
-//     int by = blockIdx.y * blockDim.y;
-//     int x = bx + tx;
-//     int y = by + ty;
-
-//     float dx = 0.0f;
-//     float dy = 0.0f;
-
-//     if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
-//         dx += input[(y - 1) * width + (x + 1)] - input[(y - 1) * width + (x - 1)] +
-//               2.0f * input[y * width + (x + 1)] - 2.0f * input[y * width + (x - 1)] +
-//               input[(y + 1) * width + (x + 1)] - input[(y + 1) * width + (x - 1)];
-
-//         dy += input[(y - 1) * width + (x - 1)] + 2.0f * input[(y - 1) * width + x] + input[(y - 1) * width + (x + 1)] -
-//               input[(y + 1) * width + (x - 1)] - 2.0f * input[(y + 1) * width + x] - input[(y + 1) * width + (x + 1)];
-
-//         grad_x[y * width + x]
-
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <math.h>
-// #include <cuda_runtime.h>
-
-// __device__ void gaussian_kernel(float* kernel, int size, float sigma) {
-//     float sum = 0.0f;
-//     int offset = size / 2;
-
-//     for (int i = -offset; i <= offset; i++) {
-//         for (int j = -offset; j <= offset; j++) {
-//             float r = sqrtf(i * i + j * j);
-//             float val = expf(-r * r / (2.0f * sigma * sigma)) / (2.0f * M_PI * sigma * sigma);
-//             kernel[(i + offset) * size + j + offset] = val;
-//             sum += val;
-//         }
-//     }
-
-//     for (int i = 0; i < size * size; i++) {
-//         kernel[i] /= sum;
-//     }
-// }
-
-// __device__ void apply_kernel(float* output, const float* input, const float* kernel, int size, int width, int height) {
-//     int offset = size / 2;
-
-//     int tx = threadIdx.x;
-//     int ty = threadIdx.y;
-//     int bx = blockIdx.x * blockDim.x;
-//     int by = blockIdx.y * blockDim.y;
-//     int x = bx + tx;
-//     int y = by + ty;
-
-//     float sum = 0.0f;
-
-//     if (x < width && y < height) {
-//         for (int i = -offset; i <= offset; i++) {
-//             for (int j = -offset; j <= offset; j++) {
-//                 int idx = (y + i) * width + x + j;
-//                 if (idx >= 0 && idx < width * height) {
-//                     float val = input[idx];
-//                     float weight = kernel[(i + offset) * size + j + offset];
-//                     sum += val * weight;
-//                 }
-//             }
-//         }
-//         output[y * width + x] = sum;
-//     }
-// }
-
-// __device__ void sobel_filter(float* grad_x, float* grad_y, const float* input, int width, int height) {
-//     int tx = threadIdx.x;
-//     int ty = threadIdx.y;
-//     int bx = blockIdx.x * blockDim.x;
-//     int by = blockIdx.y * blockDim.y;
-//     int x = bx + tx;
-//     int y = by + ty;
-
-//     float dx = 0.0f;
-//     float dy = 0.0f;
-
-//     if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
-//         dx += input[(y - 1) * width + (x + 1)] - input[(y - 1) * width + (x - 1)] +
-//               2.0f * input[y * width + (x + 1)] - 2.0f * input[y * width + (x - 1)] +
-//               input[(y + 1) * width + (x + 1)] - input[(y + 1) * width + (x - 1)];
-
-//         dy += input[(y - 1) * width + (x - 1)] + 2.0f * input[(y - 1) * width + x] + input[(y - 1) * width + (x + 1)] -
-//               input[(y + 1) * width + (x - 1)] - 2.0f * input
+    // Check if the current pixel is inside the triangle
+    if (alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 && inEdgemap[idy * width + idx] > 0.5f) {
+        outMasked[idy * width + idx] = 1.0;
+    } else {
+        outMasked[idy * width + idx] = 0.0;
+    }
+}

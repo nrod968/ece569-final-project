@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
   float *hostOutputImageData;
   
   float *deviceInputImageData;
-  float *deviceOutputImageData;
+  //float *deviceOutputImageData;
   float *gsData;
 
   args = wbArg_read(argc, argv); /* parse the input arguments */
@@ -89,12 +89,9 @@ int main(int argc, char *argv[]) {
     float *angleData;
     float *edgeData;
 
-    cudaMalloc((void **)&gradData,
-             imageWidth * imageHeight * sizeof(float));
-    cudaMalloc((void **)&angleData,
-             imageWidth * imageHeight * sizeof(float));
-    cudaMalloc((void **)&edgeData,
-             imageWidth * imageHeight * sizeof(float));
+    cudaMalloc((void **)&gradData, imageWidth * imageHeight * sizeof(float));
+    cudaMalloc((void **)&angleData, imageWidth * imageHeight * sizeof(float));
+    cudaMalloc((void **)&edgeData, imageWidth * imageHeight * sizeof(float));
 
   canny_edge_0<<<numBlocks, tpb>>>(gsData, gradData, angleData, imageWidth, imageHeight);
   canny_edge_1<<<numBlocks, tpb>>>(gradData, angleData, edgeData, imageWidth, imageHeight, 0.2353f);
@@ -103,14 +100,21 @@ int main(int argc, char *argv[]) {
   cudaFree(gradData);
   cudaFree(angleData);
 
-  cudaMemcpy(hostOutputImageData, edgeData,
+  float *maskData;
+  cudaMalloc((void **)&maskData, imageWidth * imageHeight * sizeof(float));
+
+  apply_mask<<<numBlocks, tpb>>>(edgeData, maskData, imageWidth, imageHeight);
+
+  cudaFree(edgeData);
+
+  cudaMemcpy(hostOutputImageData, maskData,
              imageWidth * imageHeight * sizeof(float),
              cudaMemcpyDeviceToHost);
 
   save_image_to_pgm("outc.pbm", outputImage);
 
   cudaFree(deviceInputImageData);
-  cudaFree(edgeData);
+  cudaFree(maskData);
 
   wbImage_delete(outputImage);
   wbImage_delete(inputImage);
