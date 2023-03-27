@@ -16,6 +16,7 @@ From cmd in build_dir:
 
 If done successfully, you should see outc.pbm created in build_dir.
 
-Add your kernels to kernel.cu
-Add any utility functions to util.cu
-Add your kernel call to solution.cu
+Adding files:
+1. Add your kernels to kernel.cu
+2. Add any utility functions to util.cu
+3. Add your kernel call to solution.cu
