@@ -45,6 +45,7 @@ int main(int argc, char *argv[]) {
   float *deviceInputImageData;
   //float *deviceOutputImageData;
   float *gsData;
+  uint8_t *gsDataByte;
 
   cudaEvent_t astartEvent, astopEvent;
   float aelapsedTime;
@@ -73,6 +74,9 @@ int main(int argc, char *argv[]) {
   cudaMalloc((void **)&gsData,
              imageWidth * imageHeight * sizeof(float));
 
+  cudaMalloc((void **)&gsDataByte,
+             imageWidth * imageHeight * sizeof(uint8_t));
+
   cudaMemcpy(deviceInputImageData, hostInputImageData,
              imageWidth * imageHeight * imageChannels * sizeof(float),
              cudaMemcpyHostToDevice);
@@ -82,6 +86,10 @@ int main(int argc, char *argv[]) {
   dim3 b16x16(16, 16);
   dim3 g128( ceil(imageWidth * imageHeight / 128.0));
   dim3 b128(128);
+  dim3 g64_tri( ceil(imageWidth * imageHeight * 3 / 64.0));
+  dim3 b64(64);
+  dim3 g256_tri( ceil(imageWidth * imageHeight * 3 / 256.0));
+  dim3 b256(256);
   dim3 g128_tri( ceil(imageWidth * imageHeight * 3 / 128.0));
   dim3 g64x8( ceil(imageWidth / 64.0), ceil(imageHeight / 8.0) );
   dim3 b64x8(64, 8);
@@ -98,16 +106,16 @@ int main(int argc, char *argv[]) {
     printf("\nTotal compute time (ms) %f for colToGray_v0 \n", aelapsedTime);
   }
 
-  // colToGray_v1
-  {
-    cudaEventRecord(astartEvent, 0);
+  // // colToGray_v1
+  // {
+  //   cudaEventRecord(astartEvent, 0);
 
-    colToGray_v1<<<g128_tri, b128>>>(deviceInputImageData, imageWidth * imageHeight);
-    colToGray_v1<<<g128, b128>>>(deviceInputImageData, gsData, imageWidth * imageHeight);
+  //   colToGray_v1_0<<<g128_tri, b128>>>(deviceInputImageData, imageWidth * imageHeight);
+  //   colToGray_v1_1<<<g128, b128>>>(deviceInputImageData, gsData, imageWidth * imageHeight);
 
-    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
-    printf("\nTotal compute time (ms) %f for colToGray_v1 \n", aelapsedTime);
-  }
+  //   cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+  //   printf("\nTotal compute time (ms) %f for colToGray_v1 \n", aelapsedTime);
+  // }
   
   // colToGray_v2
   {
@@ -118,6 +126,16 @@ int main(int argc, char *argv[]) {
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for colToGray_v2 \n", aelapsedTime);
   }
+
+  // colToGray_v2_byte
+  {
+    cudaEventRecord(astartEvent, 0);
+
+    colToGray_v2_byte<<<g128, b128>>>(deviceInputImageData, gsDataByte, imageWidth * imageHeight);
+
+    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+    printf("\nTotal compute time (ms) %f for colToGray_v2_byte \n", aelapsedTime);
+  }
   
   // colToGray_v3
   {
@@ -126,12 +144,22 @@ int main(int argc, char *argv[]) {
     
     cudaEventRecord(astartEvent, 0);
 
-    colToGray_v3<<<g128_tri, b128>>>(deviceInputImageData, intImageData, imageWidth * imageHeight);
-    colToGray_v3<<<g128, b128>>>(intImageData, gsData, imageWidth * imageHeight);
+    colToGray_v3_0<<<g128_tri, b128>>>(deviceInputImageData, intImageData, imageWidth * imageHeight);
+    colToGray_v3_1<<<g128, b128>>>(intImageData, gsData, imageWidth * imageHeight);
 
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for colToGray_v3 \n", aelapsedTime);
     cudaFree(intImageData);
+  }
+
+  // colToGray_v4
+  {
+    cudaEventRecord(astartEvent, 0);
+
+    colToGray_v4<<<ceil(imageWidth * imageHeight * 3 / 1024.0), 1024>>>(deviceInputImageData, gsData, imageWidth * imageHeight);
+
+    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+    printf("\nTotal compute time (ms) %f for colToGray_v4 \n", aelapsedTime);
   }
 
   /////////////////////////////////////////////////////// CANNY
@@ -139,10 +167,12 @@ int main(int argc, char *argv[]) {
   float *gradData;
   float *angleData;
   float *edgeData;
+  uint8_t *edgeDataByte;
 
   cudaMalloc((void **)&gradData, imageWidth * imageHeight * sizeof(float));
   cudaMalloc((void **)&angleData, imageWidth * imageHeight * sizeof(float));
   cudaMalloc((void **)&edgeData, imageWidth * imageHeight * sizeof(float));
+  cudaMalloc((void **)&edgeDataByte, imageWidth * imageHeight * sizeof(uint8_t));
 
   // cannyEdge_v0
   {
@@ -159,8 +189,8 @@ int main(int argc, char *argv[]) {
   {
     cudaEventRecord(astartEvent, 0);
 
-    canny_edge_0<<<g64x8, b64x8>>>(gsData, gradData, angleData, imageWidth, imageHeight);
-    canny_edge_1<<<g64x8, b64x8>>>(gradData, angleData, edgeData, imageWidth, imageHeight, 0.2353f);
+    cannyEdge_v0_0<<<g64x8, b64x8>>>(gsData, gradData, angleData, imageWidth, imageHeight);
+    cannyEdge_v0_1<<<g64x8, b64x8>>>(gradData, angleData, edgeData, imageWidth, imageHeight, 0.2353f);
 
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for cannyEdge_v0 (Long) \n", aelapsedTime);
@@ -170,8 +200,8 @@ int main(int argc, char *argv[]) {
   {
     cudaEventRecord(astartEvent, 0);
 
-    canny_edge_v1_0<<<g16x16, b16x16>>>(gsData, gradData, angleData, imageWidth, imageHeight);
-    canny_edge_v0_1<<<g16x16, b16x16>>>(gradData, angleData, edgeData, imageWidth, imageHeight, 0.2353f);
+    cannyEdge_v1_0<<<g16x16, b16x16>>>(gsData, gradData, angleData, imageWidth, imageHeight);
+    cannyEdge_v0_1<<<g16x16, b16x16>>>(gradData, angleData, edgeData, imageWidth, imageHeight, 0.2353f);
 
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for cannyEdge_v1 \n", aelapsedTime);
@@ -192,7 +222,47 @@ int main(int argc, char *argv[]) {
     cudaFree(gradangleData);
   }
 
+  // cannyEdge_v3
+  {
+    cudaEventRecord(astartEvent, 0);
+
+    dim3 ce3g( ceil(imageWidth / 60.0), ceil(imageHeight / 4.0) );
+    dim3 ce3b(64, 8);
+
+    cannyEdge_v3<<<ce3g, ce3b>>>(gsData, edgeData, imageWidth, imageHeight, 23);
+
+    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+    printf("\nTotal compute time (ms) %f for cannyEdge_v3 \n", aelapsedTime);
+  }
+
+   // cannyEdge_v4
+   {
+    cudaEventRecord(astartEvent, 0);
+
+    dim3 ce3g( ceil(imageWidth / 12.0), ceil(imageHeight / 28.0) );
+    dim3 ce3b(16, 32);
+
+    cannyEdge_v4<<<ce3g, ce3b>>>(gsData, edgeData, imageWidth, imageHeight, 529);
+
+    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+    printf("\nTotal compute time (ms) %f for cannyEdge_v4 \n", aelapsedTime);
+  }
+
+  // cannyEdge_v3_byte
+  {
+    cudaEventRecord(astartEvent, 0);
+
+    dim3 ce3g( ceil(imageWidth / 28.0), ceil(imageHeight / 4.0) );
+    dim3 ce3b(32, 8);
+
+    cannyEdge_v3_byte<<<ce3g, ce3b>>>(gsDataByte, edgeDataByte, imageWidth, imageHeight, 60);
+
+    cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+    printf("\nTotal compute time (ms) %f for cannyEdge_v3_byte \n", aelapsedTime);
+  }
+
   cudaFree(gsData);
+  cudaFree(gsDataByte);
   cudaFree(gradData);
   cudaFree(angleData);
  
@@ -222,13 +292,29 @@ int main(int argc, char *argv[]) {
 
     cudaEventRecord(astartEvent, 0);
 
-    apply_mask_opt<<<g16x16, b16x16>>>(edgeData, maskData, imageWidth, imageHeight, wX, hY, denom);
+    applyMask_v1<<<g16x16, b16x16>>>(edgeData, maskData, imageWidth, imageHeight, wX, hY, denom);
 
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for applyMask_v1 \n", aelapsedTime);
   }
 
+  // // applyMask_v1_byte
+  // {
+  //   float wX = ((float)imageWidth / 2) - 1;                  // (width - 1) - (width / 2)
+  //   float hY = ((float)imageHeight / 2);                     // (height - 1) - (height / 2) + 1
+  //   float denom = (hY + imageWidth) - (hY * imageWidth) - 1; // Calculates barycentric denominator
+  //   hY -= 1;                                                 // (height - 1) - (height / 2)
+
+  //   cudaEventRecord(astartEvent, 0);
+
+  //   applyMask_v1_byte<<<g16x16, b16x16>>>(edgeDataByte, maskData, imageWidth, imageHeight, wX, hY, denom);
+
+  //   cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+  //   printf("\nTotal compute time (ms) %f for applyMask_v1_byte \n", aelapsedTime);
+  // }
+
   cudaFree(edgeData);
+  cudaFree(edgeDataByte);
 
 
   /////////////////////////////////////////////////////// END

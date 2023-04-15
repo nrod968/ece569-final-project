@@ -54,6 +54,19 @@ __global__ void colToGray_v2(float *inImage, float *outImage, int imageArea) {
     outImage[idx] = (0.21 * r + 0.71 * g + 0.07 * b);
 }
 
+__global__ void colToGray_v2_byte(float *inImage, uint8_t *outImage, int imageArea) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    if (idx >= imageArea) return;
+
+    int rgbIndex = idx * 3;
+
+    float r = inImage[rgbIndex];
+    float g = inImage[rgbIndex + 1];
+    float b = inImage[rgbIndex + 2];
+  
+    outImage[idx] = (uint8_t)((0.21 * r + 0.71 * g + 0.07 * b) * 255);
+}
+
   // num threads = image area * 3
 __global__ void colToGray_v3_0(float *inImage, float *intImage, int imageArea) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -71,6 +84,23 @@ __global__ void colToGray_v3_1(float *intImage, float *outImage, int imageArea) 
     float b = intImage[idx + imageArea + imageArea];
   
     outImage[idx] = (0.21 * r + 0.71 * g + 0.07 * b);
+}
+
+__global__ void colToGray_v4(float *inImage, float *outImage, int imageArea) {
+    __shared__ float s[1024];
+
+    int i = threadIdx.x;
+    int idx = (threadIdx.x + blockIdx.x * blockDim.x) - blockIdx.x;
+    if (idx >= imageArea * 3) return;
+
+    s[i] = inImage[idx];
+
+    __syncthreads();
+
+    if (i < 341) {
+        int index = i * 3;
+        outImage[i + (blockIdx.x * 341)] = (0.21 * s[index] + 0.71 * s[index+1] + 0.07 * s[index+2]);
+    }
 }
 
 ///////////////////////// cannyEdge
@@ -331,6 +361,224 @@ __global__ void cannyEdge_v0_1(float *gradient, float *angle, float *edgemap, in
     }
 }
 
+__global__ void cannyEdge_v3(float *imageIn, float *edgemap, int width, int height, int lowThresh) {
+
+    // // 0 1 2
+    // // 3   4
+    // // 5 6 7
+
+    // Part 1: calculate gradient and angle
+
+    __shared__ int ns[64][8];
+
+    int col = (threadIdx.x + blockIdx.x * blockDim.x) - (4 * blockIdx.x) - 2;
+    int row = (threadIdx.y + blockIdx.y * blockDim.y) - (4 * blockIdx.y) - 2;
+    int tidx = threadIdx.x;
+    int tidy = threadIdx.y;
+    int index = row * width + col;
+
+    if (col >= 0 && row >= 0 && col < width && row < height)
+        ns[tidx][tidy] = (int)(imageIn[index] * 100);
+    else
+        ns[tidx][tidy] = 0;
+
+    __syncthreads();
+
+    if (tidx >= 1 && tidy >= 1 && tidx <= blockDim.x-2 && tidy <= blockDim.y-2) {
+
+        int gx = -ns[tidx-1][tidy-1] + ns[tidx+1][tidy-1] - (2 * ns[tidx-1][tidy]) + (2 * ns[tidx+1][tidy]) - ns[tidx-1][tidy+1] + ns[tidx+1][tidy+1];
+        int gy = -ns[tidx-1][tidy-1] + ns[tidx-1][tidy+1] - (2 * ns[tidx][tidy-1]) + (2 * ns[tidx][tidy+1]) - ns[tidx+1][tidy-1] + ns[tidx+1][tidy+1];
+
+        __syncthreads();
+
+        int grad = (int)(sqrtf( powf(gx, 2) + powf(gy, 2) ));
+        int theta = (int)(atan2f( gy, gx ) * 180 / M_PI);
+        theta = theta + (theta < 0) * 180;
+
+        ns[tidx][tidy] = grad;
+
+        __syncthreads();
+
+        // Part 2: find edges
+
+        if (tidx >= 2 && tidy >= 2 && tidx <= blockDim.x-3 && tidy <= blockDim.y-3) {    
+            float max = 1;
+
+            if (grad < lowThresh) {
+                max = 0;
+            }
+    
+            if ( (theta < 22) || (theta > 157) ) {
+                if (ns[tidx-1][tidy] > grad)
+                    max = 0;
+                if (ns[tidx+1][tidy] > grad)
+                    max = 0;
+            }
+            else if ( theta < 67 ) {
+                if (ns[tidx-1][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx+1][tidy+1] > grad)
+                    max = 0;
+            }
+            else if ( theta < 112 ) {
+                if (ns[tidx][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx][tidy+1] > grad)
+                    max = 0;
+            }
+            else {
+                if (ns[tidx+1][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx-1][tidy+1] > grad)
+                    max = 0;
+            }
+    
+            if (col < width && row < height)
+                edgemap[index] = max;
+            
+        }
+    }
+}
+
+__device__ float fastatan2f(float a, float b) {
+    if (fabs(b - 0.0001f) > 0)
+        b = 0.001f;
+    double x = a / b;
+    x = x * x;
+    return (float)((0.077650 * x - 0.287434) * x + 0.9951816) * x;
+}
+
+__device__ float fastsinf(float a) {
+    return a;
+}
+
+__device__ float fastcosf(float a) {
+    return -0.4 * a * a + 1;
+}
+
+__global__ void cannyEdge_v4(float *imageIn, float *edgemap, int width, int height, int lowThresh) {
+    // Part 1: calculate gradient and angle
+
+    __shared__ uint16_t ns[16][32];
+    __shared__ uint16_t grads[16][32];
+
+    int col = (threadIdx.x + blockIdx.x * blockDim.x) - (4 * blockIdx.x) - 2;
+    int row = (threadIdx.y + blockIdx.y * blockDim.y) - (4 * blockIdx.y) - 2;
+    int tidx = threadIdx.x;
+    int tidy = threadIdx.y;
+    int index = row * width + col;
+
+    if (col >= 0 && row >= 0 && col < width && row < height)
+        ns[tidx][tidy] = (uint16_t)(imageIn[index] * 100);
+    else
+        ns[tidx][tidy] = 0;
+
+    __syncthreads();
+
+    if (tidx >= 1 && tidy >= 1 && tidx <= blockDim.x-2 && tidy <= blockDim.y-2) {
+
+        int gx = (int)ns[tidx+1][tidy] - (int)ns[tidx-1][tidy];
+        int gy = (int)ns[tidx][tidy+1] - (int)ns[tidx][tidy-1];
+
+        uint16_t grad = ( gx * gx + gy * gy );
+        float theta = fastatan2f( gy, gx );
+
+        grads[tidx][tidy] = grad;
+
+        __syncthreads();
+
+        // Part 2: find edges
+
+        if (tidx >= 2 && tidy >= 2 && tidx <= blockDim.x-3 && tidy <= blockDim.y-3 && col < width && row < height && grad >= lowThresh) {    
+            int x = (int)(fastcosf(theta) - 0.6) + (int)(fastcosf(theta) + 0.6);
+            int y = (int)(fastsinf(theta) - 0.6) + (int)(fastsinf(theta) + 0.6);
+
+            int max = fmaxf(grads[tidx + x][tidy + y], grad);
+            max = fmaxf( grads[tidx - x][tidy - y], max );
+            edgemap[index] = (max == grad);
+        }
+    }
+}
+
+__global__ void cannyEdge_v3_byte(uint8_t *imageIn, uint8_t *edgemap, int width, int height, int lowThresh) {
+
+    // // 0 1 2
+    // // 3   4
+    // // 5 6 7
+
+    // Part 1: calculate gradient and angle
+
+    __shared__ int ns[32][8];
+
+    int col = (threadIdx.x + blockIdx.x * blockDim.x) - (4 * blockIdx.x) - 2;
+    int row = (threadIdx.y + blockIdx.y * blockDim.y) - (4 * blockIdx.y) - 2;
+    int tidx = threadIdx.x;
+    int tidy = threadIdx.y;
+    int index = row * width + col;
+
+    if (col >= 0 && row >= 0 && col < width && row < height)
+        ns[tidx][tidy] = (int)(imageIn[index]);
+    else
+        ns[tidx][tidy] = 0;
+
+    __syncthreads();
+
+    if (tidx >= 1 && tidy >= 1 && tidx <= blockDim.x-2 && tidy <= blockDim.y-2) {
+
+        int gx = -ns[tidx-1][tidy-1] + ns[tidx+1][tidy-1] - (2 * ns[tidx-1][tidy]) + (2 * ns[tidx+1][tidy]) - ns[tidx-1][tidy+1] + ns[tidx+1][tidy+1];
+        int gy = -ns[tidx-1][tidy-1] + ns[tidx-1][tidy+1] - (2 * ns[tidx][tidy-1]) + (2 * ns[tidx][tidy+1]) - ns[tidx+1][tidy-1] + ns[tidx+1][tidy+1];
+
+        int grad = (int)(sqrtf( powf(gx, 2) + powf(gy, 2) ));
+        int theta = (int)(atan2f( gy, gx ) * 180 / M_PI);
+        theta = theta + (theta < 0) * 180;
+
+        __syncthreads();
+
+        ns[tidx][tidy] = grad;
+
+        __syncthreads();
+
+        // Part 2: find edges
+    
+        if (tidx >= 2 && tidy >= 2 && tidx <= blockDim.x-3 && tidy <= blockDim.y-3) {    
+            uint8_t max = 1;
+    
+            if ( (theta < 22) || (theta > 157) ) {
+                if (ns[tidx-1][tidy] > grad)
+                    max = 0;
+                if (ns[tidx+1][tidy] > grad)
+                    max = 0;
+            }
+            else if ( theta < 67 ) {
+                if (ns[tidx-1][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx+1][tidy+1] > grad)
+                    max = 0;
+            }
+            else if ( theta < 112 ) {
+                if (ns[tidx][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx][tidy+1] > grad)
+                    max = 0;
+            }
+            else {
+                if (ns[tidx+1][tidy-1] > grad)
+                    max = 0;
+                if (ns[tidx-1][tidy+1] > grad)
+                    max = 0;
+            }
+    
+            if (grad < lowThresh) {
+                max = 0;
+            }
+    
+            if (col < width && row < height)
+                edgemap[index] = max;
+            
+        }
+    }
+}
+
 ///////////////////////// applyMask
 __global__ void applyMask_v0(float* inEdgemap, float* outMasked, int width, int height) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -378,4 +626,24 @@ __global__ void applyMask_v1(float* inEdgemap, float* outMasked, int width, int 
 
     // Check if the current pixel is inside the triangle
     outMasked[index] = (alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 && inEdgemap[index] > 0.5f);
+}
+
+__global__ void applyMask_v1_byte(uint8_t* inEdgemap, float* outMasked, int width, int height,
+    float wX, float hY, float denom) {
+int idx = blockIdx.x * blockDim.x + threadIdx.x;
+int idy = blockIdx.y * blockDim.y + threadIdx.y;
+if (idx >= width || idy >= height) return;
+
+// Compute variables & global index
+float xA = idx - (wX + 1);
+float yA = idy - (hY + 1);
+int index = idy * width + idx;
+
+// Compute the barycentric coordinates of the current pixel
+float alpha = (hY * xA - wX * yA) / denom;
+float beta =  (-hY * xA - (wX+1) * yA) / denom;
+float gamma = 1.0 - alpha - beta;
+
+// Check if the current pixel is inside the triangle
+outMasked[index] = (alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 && inEdgemap[index] == 1);
 }
