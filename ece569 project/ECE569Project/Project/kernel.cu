@@ -647,3 +647,101 @@ float gamma = 1.0 - alpha - beta;
 // Check if the current pixel is inside the triangle
 outMasked[index] = (alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 && inEdgemap[index] == 1);
 }
+
+//Filter lines into positive and negative slope
+__global__ void filterLines(float* lines, int numLines, int maxLines, float* posLines, float* negLines){
+    bool negAdded = false;
+    bool posAdded = true;
+
+    int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    //if thread is not in range of max lines then don't perform calculations
+    if(tid >= numLines){
+        return;
+    }
+        //get x1,y1,x2,y2,slope for line
+        float x1 = lines[tid];
+        float y1 = lines[tid + maxLines];
+        float x2 = lines[tid + (maxLines * 2)];
+        float y2 = lines[tid + (maxLines * 3)];
+        float slope = lines[tid + (maxLines * 4)];
+
+        float xdiff = x2 - x1;
+        float ydiff = y2 - y1;
+
+        //calculate length of line using sqrt((x2 - x1)^2 + (y2 - y1)^2)
+        float lineLength = hypotf(xdiff, ydiff);
+
+        //if line is long enough
+        if(lineLength > 30){
+            if(x1 != x2){
+
+                //if positive sloped
+                if(slope > 0){
+                    float tanTheta = tanf(fabsf(ydiff)/fabsf(xdiff));
+                    float angle = atanf(tanTheta) * (180/3.14);
+
+                    //write line to posLines array
+                    if(fabsf(angle) > 20 && fabsf(angle) < 85){
+                        posLines[tid] = x1;
+                        posLines[tid + maxLines] = y1;
+                        posLines[tid + (maxLines * 2)] = x2;
+                        posLines[tid + (maxLines * 3)] = y2;
+                        posLines[tid + (maxLines * 4)] = slope;
+                        posAdded = true;
+                    }
+                }
+
+                //if negative sloped
+                if(slope < 0){
+                    float tanTheta = tanf(fabsf(ydiff)/fabsf(xdiff));
+                    float angle = atanf(tanTheta) * (180/3.14);
+
+                    //write line to negLines array
+                    if(fabsf(angle) > 20 && fabsf(angle) < 85){
+                        negLines[tid] = x1;
+                        negLines[tid + maxLines] = y1;
+                        negLines[tid + (maxLines * 2)] = x2;
+                        negLines[tid + (maxLines * 3)] = y2;
+                        negLines[tid + (maxLines * 4)] = slope;
+                        negAdded = true;
+                    }
+                }
+            }
+        }
+
+        //if no positive line added then perform above calculations again for line of any length
+        if(!posAdded){
+            if(slope > 0){
+                    float tanTheta = tanf(fabsf(ydiff)/fabsf(xdiff));
+                    float angle = atanf(tanTheta) * (180/3.14);
+
+                    //write line to posLines array
+                    if(fabsf(angle) > 20 && fabsf(angle) < 85){
+                        posLines[tid] = x1;
+                        posLines[tid + maxLines] = y1;
+                        posLines[tid + (maxLines * 2)] = x2;
+                        posLines[tid + (maxLines * 3)] = y2;
+                        posLines[tid + (maxLines * 4)] = slope;
+                        posAdded = true;
+                    }
+                }
+            }
+
+        if(!negAdded){
+            if(slope < 0){
+                    float tanTheta = tanf(fabsf(ydiff)/fabsf(xdiff));
+                    float angle = atanf(tanTheta) * (180/3.14);
+
+                    //write line to negLines array
+                    if(fabsf(angle) > 20 && fabsf(angle) < 85){
+                        negLines[tid] = x1;
+                        negLines[tid + maxLines] = y1;
+                        negLines[tid + (maxLines * 2)] = x2;
+                        negLines[tid + (maxLines * 3)] = y2;
+                        negLines[tid + (maxLines * 4)] = slope;
+                        negAdded = true;
+                    }
+                }
+            }
+    }
