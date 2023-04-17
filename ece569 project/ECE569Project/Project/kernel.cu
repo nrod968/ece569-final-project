@@ -745,3 +745,68 @@ __global__ void filterLines(float* lines, int numLines, int maxLines, float* pos
                 }
             }
     }
+
+__global__ void findAvgSlope(float* posLines, float* negLines, float* posSum, int numGoodPosLines, float* posSlopeMean, float* negSum, int numGoodNegLines, float* negSlopeMean, int maxLines){
+    float posMedian;
+    int posMedianIndex;
+    int posLineSize = sizeof(posLines);
+    float negMedian;
+    int negMedianIndex;
+    int negLineSize = sizeof(negLines);
+
+    int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    //arrays of positive and negative lines are sorted in host code
+
+    //only need 1 thread to calculate positive median
+    if(tid == 0){
+        //if even number of positive lines
+        if(posLineSize % 2 == 0){
+            posMedianIndex = posLineSize/2;
+            //take average of middle 2 values for median
+            posMedian = (posLines[posMedianIndex] + posLines[posMedianIndex - 1])/2;
+        }
+
+        else{
+            posMedianIndex = posLineSize/2;
+            posMedian = (posLines[posMedianIndex];
+        }
+    }
+
+        //only need 1 thread to calculate positive median
+    if(tid == 1){
+        //if even number of negative lines
+        if(negLineSize % 2 == 0){
+            negMedianIndex = negLineSize/2;
+            //take average of middle 2 values for median
+            negMedian = (negLines[negMedianIndex] + negLines[negMedianIndex - 1])/2;
+        }
+
+        else{
+            negMedianIndex = negLineSize/2;
+            negMedian = (negLines[negMedianIndex];
+        }
+    }
+
+    //for threads in pos lines size only
+    if(tid <= posLineSize){
+        if(fabsf(posLines[tid] - posMedian) < (posMedian * 0.2)){
+            atomicAdd(&numPosGoodLines, 1);
+            atomicAdd(&posSum, posLines[tid]);
+        }
+        __syncthreads();
+
+        posSlopeMean = posSum/numPosGoodLines;
+    }
+
+    //for threads in neg line size only
+    if(tid >= posLineSize && tid <= maxLines){
+        if(fabsf(negLines[tid] - negMedian) < (negMedian * 0.2)){
+            atomicAdd(&numNegGoodLines, 1);
+            atomicAdd(&negSum, negLines[tid]);
+        }
+        __syncthreads();
+
+        negSlopeMean = negSum/numNegGoodLines;
+    }
+}
