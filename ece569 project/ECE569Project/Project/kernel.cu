@@ -746,7 +746,9 @@ __global__ void filterLines(float* lines, int numLines, int maxLines, float* pos
             }
     }
 
-__global__ void findAvgSlope(float* posLines, float* negLines, float* posSum, int numGoodPosLines, float* posSlopeMean, float* negSum, int numGoodNegLines, float* negSlopeMean, int maxLines){
+
+//kernel to find pos/neg slope mean from only good lines
+__global__ void findSlopeMean(float* posLines, float* negLines, float* posSum, int numGoodPosLines, float* posSlopeMean, float* negSum, int numGoodNegLines, float* negSlopeMean, int maxLines){
     float posMedian;
     int posMedianIndex;
     int posLineSize = sizeof(posLines);
@@ -794,19 +796,92 @@ __global__ void findAvgSlope(float* posLines, float* negLines, float* posSum, in
             atomicAdd(&numPosGoodLines, 1);
             atomicAdd(&posSum, posLines[tid]);
         }
-        __syncthreads();
-
-        posSlopeMean = posSum/numPosGoodLines;
     }
 
     //for threads in neg line size only
     if(tid >= posLineSize && tid <= maxLines){
-        if(fabsf(negLines[tid] - negMedian) < (negMedian * 0.2)){
+        if(fabsf(negLines[tid] - negMedian) < (negMedian * 0.9)){
             atomicAdd(&numNegGoodLines, 1);
             atomicAdd(&negSum, negLines[tid]);
         }
         __syncthreads();
 
         negSlopeMean = negSum/numNegGoodLines;
+    }
+
+    __syncthreads();
+
+    if(tid == 0){
+        posSlopeMean = posSum/numPosGoodLines;
+    }
+
+    if(tid == 1){
+        negSlopeMean = negSum/numNegGoodLines;
+    }
+}
+
+//finds x intercepts for all positive and negative lines
+__global__ void findXIntercepts(float* posLines, float* negLines, float* xInterceptPos, float* xInterceptNeg, int numPosLines, int numNegLines int maxLines){
+    float posxIntercept;
+    float posyIntercept;
+    float negxIntercept;
+    float negyIntercept;
+
+    int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if(tid < numPosLines){
+        float posx1 = posLines[tid];
+        float posy1 = posLines[tid + maxLines];
+        float posSlope = posLines[tid + (maxLines * 4)];
+        posyIntercept = posy1 - posSlope * posx1;
+        posxIntercept = -yIntercept/posSlope;
+
+        xInterceptPos[tid] = posxIntercept;
+    }
+
+    if(tid >= numPosLines && tid < maxLines){
+        float negx1 = negLines[tid];
+        float negy1 = negLines[tid + maxLines];
+        float negSlope = negLines[tid + (maxLines * 4)];
+        negyIntercept = negy1 - negSlope * negx1;
+        negxIntercept = -negyIntercept/negSlope;
+
+        xInterceptNeg[tid] = negxIntercept;
+    }
+}
+
+//finds mean at x intercepts using only good lines
+//array sorted and median calculated outside kernel
+__global__ void findMeanXatY0(float xIntPosMedian, float xIntNegMedian, float xIntPosMean, float xIntNegMean, 
+    int numPosLines, int numNegLines, float* xInterceptPos, float* xInterceptNeg, 
+    int numPosGood, int numNegGood, float posxIntSum, float negxIntSum int maxLines){
+
+    int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if(tid < numPosLines){
+        float posxIntercept = xInterceptPos[tid];
+        if(fabsf(posxIntercept - xIntPosMedian) < (0.35 * xIntPosMedian)){
+            xIntPosGood[tid] = posxIntercept;
+            atomicAdd(&posxIntSum, posxIntercept);
+            atomicAdd(&numPosGood, 1);
+        }
+    }
+
+    if(tid >= numPosLines && tid < maxLines){
+        float negxIntercept = xInterceptNeg[tid];
+        if(fabsf(negxIntercept - xIntNegMedian) < (0.35 * xIntNegMedian)){
+            xIntPosGood[tid] = posxIntercept;
+            atomicAdd(&negxIntSum, negxIntercept);
+            atomicAdd(&numNegGood, 1);
+        }
+    }
+    __syncthreads();
+
+    if(tid == 0){
+        xIntPosMean = posxIntSum/numPosGood;
+    }
+
+    if(tid == 1){
+        xIntNegMean = negxIntSum/numNegGood;
     }
 }
