@@ -885,3 +885,42 @@ __global__ void findMeanXatY0(float xIntPosMedian, float xIntNegMedian, float xI
         xIntNegMean = negxIntSum/numNegGood;
     }
 }
+
+__global__ void plotLaneLines(float* image, float posSlopeMean, float xIntPosMean, float negSlopeMean, float xIntNegMean, 
+    int imgHeight){
+
+    //Positive coordinates
+    float x1Pos = xIntPosMean;
+    float y1Pos = 0;
+    float y2Pos = imgHeight - (imgHeight - (imgHeight *0.35));
+    float x2Pos = (y2Pos - y1Pos)/posSlopeMean + x1Pos;
+
+    //Negative coordinates
+    float x1Neg = xIntNegMean;
+    float y1Neg = 0;
+    float y2Neg = imgHeight - (imgHeight - (imgHeight *0.35));
+    float x2Neg = (y2Neg - y1)Neg/negSlopeMean + x1Neg;
+
+    int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    x1Pos = int(x1Pos + .5);
+	x2Pos = int(x2Pos + .5);
+	y1Pos = int(y1Pos + .5);
+	y2Pos = int(y2Pos + .5);
+
+    //color positive line
+    if(tid >= x1Pos && tid <= x2Pos && tid >= y1Pos && tid <= y2Pos){
+        image[tid] = 0.23;
+    }
+
+    x1Neg = int(x1Neg + .5);
+	x2Neg = int(x2Neg + .5);
+	y1Neg = int(y1Neg + .5);
+	y2Neg = int(y2Neg + .5);
+
+    //color negative line
+    if(tid >= x1Neg && tid <= x2Neg && tid >= y1Neg && tid <= y2Neg){
+        image[tid] = 0.23;
+    }
+}
+
