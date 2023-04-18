@@ -651,7 +651,7 @@ outMasked[index] = (alpha >= 0.0 && beta >= 0.0 && gamma >= 0.0 && inEdgemap[ind
 /////////////////////////////////// Hough
 
 // theta increment, total of 17 bins from 0 to pi
-#define N_ROWS 17
+#define N_ROWS 16
 #define DELTA_THETA M_PI / N_ROWS
 #define DELTA_RHO 2.0
 
@@ -667,6 +667,10 @@ __device__ __host__ int getRhoIndex(float rho, int ncols) {
     return (int)floorf( (rho + ncols / DELTA_RHO) + 0.5 );
 }
 
+__device__ float getRho(float theta, int idx, int idy) {
+    return idx * cosf(theta) + idy * sinf(theta);
+}
+
 // (x1, y1) is LEFTmost point of the line
 // (x2, y2) is the RIGHTmost point of the line
 // x1
@@ -680,21 +684,94 @@ __global__ void hough_v0_0(float *inMasked, int width, int height, int *hArray, 
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int index = idy * width + idx;
+    int hArraySize = N_ROWS * ncols;
 
     if (idx >= width || idy >= height || inMasked[index]  < 0.5f) return;
 
     for (int i = 0; i < N_ROWS; i++) {
         float theta = i * DELTA_THETA;
-        float rho = idx * cosf(theta) + idy * sinf(theta);
+        float rho = getRho(theta, idx, idy);
         int rhoIndex = getRhoIndex(rho, ncols);
         index = i * ncols + rhoIndex;
 
-        atomicAdd( &(hArray[ index ]), 1  );
-        atomicMin( &(xMins[ index ]), idx );
-        atomicMin( &(yMins[ index ]), idy );
-        atomicMax( &(xMaxs[ index ]), idx );
-        atomicMax( &(yMaxs[ index ]), idy );
+        if (index >= 0 && index < hArraySize) {
+            atomicAdd( &(hArray[ index ]), 1  );
+            atomicMin( &(xMins[ index ]), idx );
+            atomicMin( &(yMins[ index ]), idy );
+            atomicMax( &(xMaxs[ index ]), idx );
+            atomicMax( &(yMaxs[ index ]), idy );
+        }
     }
+}
+
+// This one reads from an array that has the precalculated cos(theta) and sin(theta) values. 
+// Ignores theta = 0 & pi. Only positive and negative slopes. 
+// TODO. nothing has been edited yet.
+__global__ void hough_v2_0(float *inMasked, int width, int height, int *hArray, int ncols, int *xMins, int *yMins, int *xMaxs, int *yMaxs) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    int index = idy * width + idx;
+    int hArraySize = N_ROWS * ncols;
+
+    if (idx >= width || idy >= height || inMasked[index]  < 0.5f) return;
+
+    for (int i = 0; i < N_ROWS; i++) {
+        float theta = i * DELTA_THETA;
+        float rho = getRho(theta, idx, idy);
+        int rhoIndex = getRhoIndex(rho, ncols);
+        index = i * ncols + rhoIndex;
+
+        if (index >= 0 && index < hArraySize) {
+            atomicAdd( &(hArray[ index ]), 1  );
+            atomicMin( &(xMins[ index ]), idx );
+            atomicMin( &(yMins[ index ]), idy );
+            atomicMax( &(xMaxs[ index ]), idx );
+            atomicMax( &(yMaxs[ index ]), idy );
+        }
+    }
+}
+
+// Instead of one thread per pixel, this kernel uses one thread per bin in hough array.
+// IDEA if this works: tiling with shared memory
+__global__ void hough_v1_0(float *inMasked, int width, int height, int *hArray, int ncols, int *xMins, int *yMins, int *xMaxs, int *yMaxs) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (idx >= ncols || idy >= N_ROWS) return;
+
+    float theta = idy * DELTA_THETA;
+    float cosTheta = cosf(theta);
+    float sinTheta = sinf(theta);
+
+    int count = 0;
+    int minX = width;
+    int minY = height;
+    int maxX = 0;
+    int maxY = 0;
+
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            if (inMasked[i * width + j] == 1) {
+                float rho = j * cosTheta + i * sinTheta;
+                int rhoIndex = getRhoIndex(rho, ncols);
+
+                if (rhoIndex == idx) {
+                    count++;
+                    minX = fminf(minX, j);
+                    minY = fminf(minY, i);
+                    maxX = fminf(maxX, j);
+                    maxY = fminf(maxY, i);
+                }
+            }
+        }
+    }
+
+    int index = idy * ncols + idx;
+    hArray[index] = count;
+    xMins[index] = minX;
+    yMins[index] = minY;
+    xMaxs[index] = maxX;
+    yMaxs[index] = maxY;
 }
 
 // // Finds peaks and stores back into hArray.
@@ -724,10 +801,6 @@ __global__ void hough_v0_1(int *hArray, int ncols, int thresh) {
         }
         hArray[index] = peak;
     }
-}
-
-__global__ void foo() {
-
 }
 
 #define MAX_LINES 32

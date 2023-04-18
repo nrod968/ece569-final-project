@@ -347,18 +347,21 @@ int main(int argc, char *argv[]) {
   cudaMemset((void **)&xMaxs,  0, N_ROWS * ncols * sizeof(int));
   cudaMemset((void **)&yMaxs,  0, N_ROWS * ncols * sizeof(int));
 
-  dim3 g_h32x32(ceil(N_ROWS * ncols / 16.0), ceil(N_ROWS * ncols / 16.0));
-  dim3 b_h32x32(16, 16);
+  dim3 g_h(ceil(ncols / 14.0), ceil(N_ROWS / 14.0));
+  dim3 b_h(16, 16);
+
+  dim3 g_h2(ceil(ncols / 16.0), ceil(N_ROWS / 16.0));
+  dim3 b_h2(16, 16);
 
   // hough_v0
   {
     cudaEventRecord(astartEvent, 0);
 
     hough_v0_0<<<g16x16, b16x16>>>(maskData, imageWidth, imageHeight, hArray, ncols, xMins, yMins, xMaxs, yMaxs);
-    hough_v0_1<<<g_h32x32, b_h32x32>>>(hArray, ncols, 30);
-    //foo<<<g_h32x32, b_h32x32>>>();
     cudaDeviceSynchronize();
-    printf("Hello\n");
+    
+    hough_v0_1<<<g_h, b_h>>>(hArray, ncols, 30);
+    cudaDeviceSynchronize();
 
     cudaMemcpy(hArrayHost, hArray, N_ROWS * ncols * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(xMinsHost, xMins, N_ROWS * ncols * sizeof(int), cudaMemcpyDeviceToHost);
@@ -368,20 +371,18 @@ int main(int argc, char *argv[]) {
 
     hough_v0_2(hArrayHost, xMinsHost, yMinsHost, xMaxsHost, yMaxsHost, ncols, linesHost, &numLines);
 
-    printf("\n%d ", numLines);
-
     cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
     printf("\nTotal compute time (ms) %f for hough_v0 \n", aelapsedTime);
   }
 
-  // for (int i = 0; i < N_ROWS; i++) {
+  for (int i = 0; i < N_ROWS; i++) {
 
-  //   printf("Row %d\n", i);
-  //   for (int j = 0; j < ncols; j++) {
-  //     printf("%d ", hArrayHost[i * ncols + j]);
-  //   }
-  //   printf("\n");
-  // }
+    printf("Row %d\n", i);
+    for (int j = 0; j < ncols; j++) {
+      printf("%d ", hArrayHost[i * ncols + j]);
+    }
+    printf("\n");
+  }
 
   cudaFree(hArray);
   cudaFree(xMins);
