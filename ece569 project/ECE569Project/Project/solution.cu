@@ -162,6 +162,57 @@ int main(int argc, char *argv[]) {
     printf("\nTotal compute time (ms) %f for colToGray_v4 \n", aelapsedTime);
   }
 
+    /////////////////////////////////////////////////////// Bilateral
+  
+    float *d_output;
+    float sigmaS = 8;
+    float sigmaR = 0.025;
+    int kernelRadius = (int)log2f(min(imageWidth, imageHeight));
+    int kernelWidth = kernelRadius * 2 + 1;
+    float* fGaussian = (float*)malloc(kernelWidth * kernelWidth * sizeof(float));
+    float *d_cGaussian;
+    //float* output = (float*)malloc(imageWidth * imageHeight * sizeof(float));
+  
+    for (int i = 0; i < kernelWidth; ++i){
+      for (int j = 0; j < kernelWidth; ++j){
+        float x = sqrtf((i - kernelRadius) * (i - kernelRadius) + (j - kernelRadius) * (j - kernelRadius));
+        fGaussian[i * kernelWidth + j] = gaussian(x, sigmaS);
+      }
+    }
+  
+    cudaMalloc((void**)&d_cGaussian, sizeof(float)*(kernelWidth * kernelWidth));
+    cudaMemcpy(d_cGaussian, fGaussian, sizeof(float)*(kernelWidth * kernelWidth), cudaMemcpyHostToDevice);
+    free(fGaussian);
+  
+    cudaMalloc((void**)&d_output, sizeof(float)*imageWidth*imageHeight);
+    dim3 threadsPerBlock(16,16);//normally 16*16 is optimal
+    dim3 numBlocks(ceil((float)imageWidth / threadsPerBlock.x), ceil((float)imageHeight / threadsPerBlock.y)); 
+  
+    {
+      
+  
+      float *d_input;
+      
+      //Cuda memory allocation and error check
+      // cudaMalloc(&d_input, sizeof(float)*imageWidth*imageHeight);//GPU-memory allocation for d_padimage
+      // cudaMemcpy(d_input, input, sizeof(float)*imageWidth*imageHeight, cudaMemcpyHostToDevice);
+      
+  
+      cudaEventRecord(astartEvent, 0);
+  
+      bilateral_v0<<<g16x16, b16x16>>>(gsData, d_output, d_cGaussian, imageHeight, imageWidth, kernelWidth, sigmaR);
+  
+      cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+      printf("\nTotal compute time (ms) %f for colToGray_v4 \n", aelapsedTime);
+  
+      //cudaMemcpy(output, d_output, sizeof(float)*imageWidth*imageHeight, cudaMemcpyDeviceToHost);
+      // cudaFree(d_input);
+      
+    }
+  
+    //cudaFree(d_output);
+    cudaFree(d_cGaussian);
+
   /////////////////////////////////////////////////////// CANNY
 
   float *gradData;
