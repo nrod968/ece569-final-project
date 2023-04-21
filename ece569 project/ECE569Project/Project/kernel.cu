@@ -103,6 +103,37 @@ __global__ void colToGray_v4(float *inImage, float *outImage, int imageArea) {
     }
 }
 
+__host__ __device__ inline float gaussian(float x, float sigma) {	
+	return 1.0f/(sigma*sqrtf(2*M_PI))*expf(-(x*x) / (2 * sigma*sigma));
+}
+
+__global__ void bilateral(float *input, float *output, float *cGaussian, int height, int width, int kernelWidth, float sigmaR) {	
+	//Calculate our pixel's location
+	int col=blockIdx.x*blockDim.x + threadIdx.x;	
+	int row=blockIdx.y*blockDim.y + threadIdx.y;
+	//Boundary check
+	if (row >= height || col >= width)
+		return;
+	// keep a running sum of the weights * intensity of each pixel and of the weights
+	float sum = 0;
+	float totalWeight = 0;
+	float centerIntensity = input[row * width + col]; // find the center pixel's intensity
+	int kernelRadius = (int)(kernelWidth / 2);
+
+	// iterate through the tile to get our sum and totalWeight sum
+	for (int dy= -1 * kernelRadius; dy <= kernelRadius; ++dy) {
+		for (int dx= -1 * kernelRadius; dx <= kernelRadius; ++dx) {
+			if (row + dy < 0 || row + dy >= height || col + dx < 0 || col + dx >= width) // boundary check
+				continue;
+			float kernelPosIntensity=input[(row + dy)*width + (col + dx)];			
+			float weight= cGaussian[(dy + kernelRadius) * kernelWidth + (dx + kernelRadius)] * gaussian(centerIntensity - kernelPosIntensity, sigmaR);				
+			sum+=(weight*kernelPosIntensity);
+			totalWeight+=weight;			
+		}
+	}	
+	output[row * width + col] = sum / totalWeight;
+}
+
 ///////////////////////// cannyEdge
 
 __global__ void cannyEdge_v0_0(float *imageIn, float *gradient, float *angle, int width, int height) {
