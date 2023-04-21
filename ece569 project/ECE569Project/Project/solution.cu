@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
       bilateral_v0<<<g16x16, b16x16>>>(gsData, d_output, d_cGaussian, imageHeight, imageWidth, kernelWidth, sigmaR);
   
       cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
-      printf("\nTotal compute time (ms) %f for colToGray_v4 \n", aelapsedTime);
+      printf("\nTotal compute time (ms) %f for bilateral_v0 \n", aelapsedTime);
   
       //cudaMemcpy(output, d_output, sizeof(float)*imageWidth*imageHeight, cudaMemcpyDeviceToHost);
       // cudaFree(d_input);
@@ -212,6 +212,26 @@ int main(int argc, char *argv[]) {
   
     //cudaFree(d_output);
     cudaFree(d_cGaussian);
+
+    {
+      float *d_input;
+      
+      //Cuda memory allocation and error check
+      // cudaMalloc(&d_input, sizeof(float)*imageWidth*imageHeight);//GPU-memory allocation for d_padimage
+      // cudaMemcpy(d_input, input, sizeof(float)*imageWidth*imageHeight, cudaMemcpyHostToDevice);
+      cudaMemcpyToSymbol(C_GAUSSIAN, fGaussian, sizeof(float)*(kernelWidth * kernelWidth));
+  
+      cudaEventRecord(astartEvent, 0);
+  
+      bilateral_v1<<<g16x16, b16x16>>>(gsData, d_output, imageHeight, imageWidth, kernelWidth, sigmaR);
+  
+      cudaEventRecord(astopEvent, 0); cudaEventSynchronize(astopEvent); cudaEventElapsedTime(&aelapsedTime, astartEvent, astopEvent);
+      printf("\nTotal compute time (ms) %f for bilateral_v1 \n", aelapsedTime);
+  
+      //cudaMemcpy(output, d_output, sizeof(float)*imageWidth*imageHeight, cudaMemcpyDeviceToHost);
+      // cudaFree(d_input);
+      
+    }
 
   /////////////////////////////////////////////////////// CANNY
 

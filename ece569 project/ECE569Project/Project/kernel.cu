@@ -134,8 +134,11 @@ __global__ void bilateral_v0(float *input, float *output, float *cGaussian, int 
 	output[row * width + col] = sum / totalWeight;
 }
 
+#define MAX_TILE_WIDTH 11
+__constant__ float C_GAUSSIAN[MAX_TILE_WIDTH * MAX_TILE_WIDTH];
+
 // Use Constant Memory for speedup
-__global__ void bilateral_v1(float *input, float *output, const float __restrict__ *cGaussian, int height, int width, int kernelWidth, float sigmaR) {	
+__global__ void bilateral_v1(float *input, float *output, int height, int width, int kernelWidth, float sigmaR) {	
 	//Calculate our pixel's location
 	int col=blockIdx.x*blockDim.x + threadIdx.x;	
 	int row=blockIdx.y*blockDim.y + threadIdx.y;
@@ -154,7 +157,7 @@ __global__ void bilateral_v1(float *input, float *output, const float __restrict
 			if (row + dy < 0 || row + dy >= height || col + dx < 0 || col + dx >= width) // boundary check
 				continue;
 			float kernelPosIntensity=input[(row + dy)*width + (col + dx)];			
-			float weight= cGaussian[(dy + kernelRadius) * kernelWidth + (dx + kernelRadius)] * gaussian(centerIntensity - kernelPosIntensity, sigmaR);				
+			float weight= C_GAUSSIAN[(dy + kernelRadius) * kernelWidth + (dx + kernelRadius)] * gaussian(centerIntensity - kernelPosIntensity, sigmaR);				
 			sum+=(weight*kernelPosIntensity);
 			totalWeight+=weight;			
 		}
